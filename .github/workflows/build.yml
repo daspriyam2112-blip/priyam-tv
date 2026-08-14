@@ -27,10 +27,11 @@ jobs:
       - name: Generate Android Project Files
         run: flutter create . --platforms=android --org=com.priyamtv
 
-      - name: Apply Custom App Launcher Icon
+      - name: Install ImageMagick & Convert App Icon
         run: |
+          sudo apt-get update && sudo apt-get install -y imagemagick
           mkdir -p android/app/src/main/res/mipmap-xxxhdpi
-          cp "finale logo.jpeg" android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+          convert "finale logo.jpeg" -resize 192x192 android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
 
       - name: Get Dependencies
         run: flutter pub get
