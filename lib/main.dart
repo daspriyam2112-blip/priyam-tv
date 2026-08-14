@@ -90,7 +90,7 @@ class PriyamFaceAvatar extends StatelessWidget {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(6),
         child: Image.network(
-          'https://raw.githubusercontent.com/daspriyam2112-blip/priyam-tv/main/assets/face_logo.png',
+          'https://raw.githubusercontent.com/daspriyam2112-blip/priyam-tv/main/finale%20logo.jpeg',
           fit: BoxFit.cover,
           errorBuilder: (context, error, stackTrace) {
             return CustomPaint(
@@ -525,7 +525,6 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
         elevation: 2,
         title: Row(
           children: [
-            // Retro Facebook-Style Header Bar Avatar
             const PriyamFaceAvatar(size: 32),
             const SizedBox(width: 10),
             RichText(
