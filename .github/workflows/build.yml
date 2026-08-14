@@ -27,6 +27,11 @@ jobs:
       - name: Generate Android Project Files
         run: flutter create . --platforms=android --org=com.priyamtv
 
+      - name: Apply Custom App Launcher Icon
+        run: |
+          mkdir -p android/app/src/main/res/mipmap-xxxhdpi
+          cp "finale logo.jpeg" android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+
       - name: Get Dependencies
         run: flutter pub get
 
