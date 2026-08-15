@@ -1,4 +1,4 @@
-import 'dart0:convert';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
@@ -304,6 +304,7 @@ class _HomeScreenState extends State<HomeScreen> {
             );
           },
         );
+      }
     } else {
       final Uri u = Uri.parse(targetUrl);
       if (!await launchUrl(u, mode: LaunchMode.externalApplication)) {
