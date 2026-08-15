@@ -233,8 +233,11 @@ class _HomeScreenState extends State<HomeScreen> {
                   return Padding(
                     padding: const EdgeInsets.all(20),
                     child: Center(
-                      child: Text('Failed to load sub-repository:\n${snapshot.error}',
-                          textAlign: TextAlign.center, style: const TextStyle(color: Colors.redAccent)),
+                      child: Text(
+                        'Failed to load sub-repository:\n${snapshot.error}',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.redAccent),
+                      ),
                     ),
                   );
                 }
@@ -304,7 +307,6 @@ class _HomeScreenState extends State<HomeScreen> {
             );
           },
         );
-      }
     } else {
       final Uri u = Uri.parse(targetUrl);
       if (!await launchUrl(u, mode: LaunchMode.externalApplication)) {
