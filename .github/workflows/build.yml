@@ -32,6 +32,40 @@ jobs:
           sed -i 's/android:label="priyam_tv"/android:label="PriyamTV"/g' android/app/src/main/AndroidManifest.xml
           sed -i 's/<manifest xmlns:android="http:\/\/schemas.android.com\/apk\/res\/android">/<manifest xmlns:android="http:\/\/schemas.android.com\/apk\/res\/android"><uses-permission android:name="android.permission.INTERNET"\/>/g' android/app/src/main/AndroidManifest.xml
 
+      - name: Fix App Icon (Remove White Borders)
+        run: |
+          sudo apt-get update && sudo apt-get install -y imagemagick
+          convert logo.jpeg -gravity Center -crop 700x700+0+0 +repage -resize 512x512 logo_clean.png
+          
+          mkdir -p android/app/src/main/res/mipmap-anydpi-v26
+          mkdir -p android/app/src/main/res/values
+
+          # Set icon background layer to dark color (#090C10)
+          cat << 'EOF' > android/app/src/main/res/values/colors.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <color name="ic_launcher_background">#090C10</color>
+          </resources>
+          EOF
+
+          # Configure adaptive icon XML layers
+          cat << 'EOF' > android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@color/ic_launcher_background"/>
+              <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
+          </adaptive-icon>
+          EOF
+
+          cp android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
+
+          # Generate drawable assets for all launcher density buckets
+          for dir in mipmap-hdpi mipmap-mdpi mipmap-xhdpi mipmap-xxhdpi mipmap-xxxhdpi; do
+            mkdir -p android/app/src/main/res/$dir
+            cp logo_clean.png android/app/src/main/res/$dir/ic_launcher_foreground.png
+            cp logo_clean.png android/app/src/main/res/$dir/ic_launcher.png
+          done
+
       - name: Get Dependencies
         run: flutter pub get
 
