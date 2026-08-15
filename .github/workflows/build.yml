@@ -25,13 +25,19 @@ jobs:
           channel: 'stable'
 
       - name: Generate Android Project Files
-        run: flutter create . --platforms=android --org=com.priyamtv
+        run: flutter create . --platforms=android --org=com.priyamtv --project-name=priyamtv
 
-      - name: Install ImageMagick & Convert App Icon
+      # --- Changes app name on launcher from priyam_tv to PriyamTV ---
+      - name: Set App Launcher Name
+        run: |
+          sed -i 's/android:label="priyam_tv"/android:label="PriyamTV"/g' android/app/src/main/AndroidManifest.xml
+
+      # --- Center-crops logo.jpeg and scales it to 192x192 icon ---
+      - name: Install ImageMagick & Auto-Crop Screenshot into Icon
         run: |
           sudo apt-get update && sudo apt-get install -y imagemagick
           mkdir -p android/app/src/main/res/mipmap-xxxhdpi
-          convert "finale logo.jpeg" -resize 192x192 android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+          convert "logo.jpeg" -gravity Center -crop 720x720+0+0 +repage -resize 192x192! android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
 
       - name: Get Dependencies
         run: flutter pub get
