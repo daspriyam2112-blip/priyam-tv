@@ -306,7 +306,8 @@ class _HomeScreenState extends State<HomeScreen> {
               },
             );
           },
-        );
+        ),
+      );
     } else {
       final Uri u = Uri.parse(targetUrl);
       if (!await launchUrl(u, mode: LaunchMode.externalApplication)) {
