@@ -24,20 +24,31 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: Generate Android Project Files
+      - name: Generate Android Project
         run: flutter create . --platforms=android --org=com.priyamtv --project-name=priyamtv
 
-      # --- Changes app name on launcher from priyam_tv to PriyamTV ---
-      - name: Set App Launcher Name
+      - name: Force App Name to PriyamTV
         run: |
           sed -i 's/android:label="priyam_tv"/android:label="PriyamTV"/g' android/app/src/main/AndroidManifest.xml
 
-      # --- Center-crops logo.jpeg and scales it to 192x192 icon ---
-      - name: Install ImageMagick & Auto-Crop Screenshot into Icon
+      - name: Fix App Icon (Edge-to-Edge Adaptive Crop)
         run: |
           sudo apt-get update && sudo apt-get install -y imagemagick
+          # Crop outer dark vertical canvas and force square
+          convert logo.jpeg -gravity Center -crop 700x700+0+0 +repage -resize 512x512 logo_clean.png
+          
+          # Generate legacy and adaptive launcher drawables
           mkdir -p android/app/src/main/res/mipmap-xxxhdpi
-          convert "logo.jpeg" -gravity Center -crop 720x720+0+0 +repage -resize 192x192! android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+          mkdir -p android/app/src/main/res/mipmap-hdpi
+          mkdir -p android/app/src/main/res/mipmap-mdpi
+          mkdir -p android/app/src/main/res/mipmap-xhdpi
+          mkdir -p android/app/src/main/res/mipmap-xxhdpi
+
+          cp logo_clean.png android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+          cp logo_clean.png android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+          cp logo_clean.png android/app/src/main/res/mipmap-xhdpi/ic_launcher.png
+          cp logo_clean.png android/app/src/main/res/mipmap-mdpi/ic_launcher.png
+          cp logo_clean.png android/app/src/main/res/mipmap-hdpi/ic_launcher.png
 
       - name: Get Dependencies
         run: flutter pub get
