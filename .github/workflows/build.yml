@@ -27,28 +27,10 @@ jobs:
       - name: Generate Android Project
         run: flutter create . --platforms=android --org=com.priyamtv --project-name=priyamtv
 
-      - name: Force App Name to PriyamTV
+      - name: Inject Internet Permission & App Name
         run: |
           sed -i 's/android:label="priyam_tv"/android:label="PriyamTV"/g' android/app/src/main/AndroidManifest.xml
-
-      - name: Fix App Icon (Edge-to-Edge Adaptive Crop)
-        run: |
-          sudo apt-get update && sudo apt-get install -y imagemagick
-          # Crop outer dark vertical canvas and force square
-          convert logo.jpeg -gravity Center -crop 700x700+0+0 +repage -resize 512x512 logo_clean.png
-          
-          # Generate legacy and adaptive launcher drawables
-          mkdir -p android/app/src/main/res/mipmap-xxxhdpi
-          mkdir -p android/app/src/main/res/mipmap-hdpi
-          mkdir -p android/app/src/main/res/mipmap-mdpi
-          mkdir -p android/app/src/main/res/mipmap-xhdpi
-          mkdir -p android/app/src/main/res/mipmap-xxhdpi
-
-          cp logo_clean.png android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
-          cp logo_clean.png android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png
-          cp logo_clean.png android/app/src/main/res/mipmap-xhdpi/ic_launcher.png
-          cp logo_clean.png android/app/src/main/res/mipmap-mdpi/ic_launcher.png
-          cp logo_clean.png android/app/src/main/res/mipmap-hdpi/ic_launcher.png
+          sed -i 's/<manifest xmlns:android="http:\/\/schemas.android.com\/apk\/res\/android">/<manifest xmlns:android="http:\/\/schemas.android.com\/apk\/res\/android"><uses-permission android:name="android.permission.INTERNET"\/>/g' android/app/src/main/AndroidManifest.xml
 
       - name: Get Dependencies
         run: flutter pub get
