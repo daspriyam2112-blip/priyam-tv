@@ -137,60 +137,183 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final List<Map<String, dynamic>> _extensions = [];
+  final List<Map<String, dynamic>> _repositories = [];
   bool _isLoading = false;
 
-  // Real HTTP Fetcher for Extension JSON
-  Future<void> _fetchRepository(String url) async {
-    setState(() => _isLoading = true);
-    try {
-      final response = await http.get(Uri.parse(url));
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        
-        // Supports standard CloudStream/Tachiyomi JSON plugin array structure
-        if (data is List) {
-          setState(() {
-            for (var item in data) {
-              if (item is Map<String, dynamic>) {
-                _extensions.add({
-                  'name': item['name'] ?? item['title'] ?? 'Unknown Extension',
-                  'url': item['url'] ?? item['downloadUrl'] ?? item['link'] ?? url,
-                  'description': item['description'] ?? item['site'] ?? 'Tap to open download/stream link',
-                });
-              }
-            }
-          });
-        } else if (data is Map<String, dynamic>) {
-          setState(() {
-            _extensions.add({
-              'name': data['name'] ?? 'Custom Scraper',
-              'url': data['url'] ?? url,
-              'description': data['description'] ?? 'Stream Source',
+  // Fetches a root repo or sub-repo URL and parses items inside
+  Future<List<Map<String, dynamic>>> _parseUrl(String url) async {
+    final response = await http.get(Uri.parse(url));
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      List<Map<String, dynamic>> items = [];
+
+      if (data is List) {
+        for (var item in data) {
+          if (item is Map<String, dynamic>) {
+            items.add({
+              'name': item['name'] ?? item['title'] ?? 'Plugin Provider',
+              'url': item['url'] ?? item['downloadUrl'] ?? item['link'] ?? item['file'] ?? '',
+              'description': item['description'] ?? item['site'] ?? item['authors'] ?? 'Provider Plugin',
+              'isRepo': item.containsKey('url') && item['url'].toString().endsWith('.json'),
             });
+          }
+        }
+      } else if (data is Map<String, dynamic>) {
+        if (data.containsKey('plugins') && data['plugins'] is List) {
+          for (var plugin in data['plugins']) {
+            items.add({
+              'name': plugin['name'] ?? 'Provider',
+              'url': plugin['url'] ?? plugin['downloadUrl'] ?? '',
+              'description': plugin['description'] ?? plugin['authors'] ?? 'Provider Plugin',
+              'isRepo': false,
+            });
+          }
+        } else {
+          items.add({
+            'name': data['name'] ?? 'Custom Provider',
+            'url': data['url'] ?? url,
+            'description': data['description'] ?? 'Stream Source',
+            'isRepo': false,
           });
         }
+      }
+      return items;
+    } else {
+      throw Exception('HTTP ${response.statusCode}');
+    }
+  }
+
+  Future<void> _addRepository(String url) async {
+    setState(() => _isLoading = true);
+    try {
+      final items = await _parseUrl(url);
+      setState(() {
+        _repositories.addAll(items);
+      });
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Repository extensions loaded successfully!')),
+          const SnackBar(content: Text('Repository items parsed successfully!')),
         );
-      } else {
-        throw Exception('HTTP ${response.statusCode}');
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to load JSON: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error loading repository: $e')),
+        );
+      }
     } finally {
       setState(() => _isLoading = false);
     }
   }
 
-  void _openExtensionLink(String urlString) async {
-    final Uri url = Uri.parse(urlString);
-    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not open link: $urlString')),
-      );
+  void _openSubRepoOrLink(Map<String, dynamic> item) async {
+    final String targetUrl = item['url'] ?? '';
+    if (targetUrl.isEmpty) return;
+
+    // If item links to another sub-repo JSON, fetch and display its contents in a drill-down view!
+    if (targetUrl.endsWith('.json') || item['isRepo'] == true) {
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: const Color(0xFF161B22),
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        ),
+        builder: (ctx) => DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.7,
+          minChildSize: 0.5,
+          maxChildSize: 0.95,
+          builder: (context, scrollController) {
+            return FutureBuilder<List<Map<String, dynamic>>>(
+              future: _parseUrl(targetUrl),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator(color: Colors.redAccent));
+                }
+                if (snapshot.hasError) {
+                  return Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Center(
+                      child: Text('Failed to load sub-repository:\n${snapshot.error}',
+                          textAlign: TextAlign.center, style: const TextStyle(color: Colors.redAccent)),
+                    ),
+                  );
+                }
+
+                final subItems = snapshot.data ?? [];
+                return Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              item['name'] ?? 'Repository Plugins',
+                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close, color: Colors.grey),
+                            onPressed: () => Navigator.pop(context),
+                          ),
+                        ],
+                      ),
+                      const Divider(color: Colors.white10),
+                      Text('Providers & Sites (${subItems.length})', style: const TextStyle(color: Colors.grey, fontSize: 13)),
+                      const SizedBox(height: 12),
+                      Expanded(
+                        child: ListView.builder(
+                          controller: scrollController,
+                          itemCount: subItems.length,
+                          itemBuilder: (context, index) {
+                            final sub = subItems[index];
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF0D1117),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.white10),
+                              ),
+                              child: ListTile(
+                                leading: const Icon(Icons.language_rounded, color: Colors.redAccent),
+                                title: Text(sub['name'] ?? '', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                                subtitle: Text(sub['description'] ?? '', style: const TextStyle(color: Colors.grey, fontSize: 11)),
+                                trailing: const Icon(Icons.open_in_new, color: Colors.blueAccent, size: 18),
+                                onTap: () async {
+                                  final Uri u = Uri.parse(sub['url']);
+                                  if (!await launchUrl(u, mode: LaunchMode.externalApplication)) {
+                                    if (mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(content: Text('Cannot open: ${sub['url']}')),
+                                      );
+                                    }
+                                  }
+                                },
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            );
+          },
+        );
+    } else {
+      // Direct Web / Provider link
+      final Uri u = Uri.parse(targetUrl);
+      if (!await launchUrl(u, mode: LaunchMode.externalApplication)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not open link: $targetUrl')),
+        );
+      }
     }
   }
 
@@ -203,82 +326,70 @@ class _HomeScreenState extends State<HomeScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setModalState) {
-          return Padding(
-            padding: EdgeInsets.only(
-              bottom: MediaQuery.of(context).viewInsets.bottom + 20,
-              top: 20,
-              left: 20,
-              right: 20,
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
+          top: 20,
+          left: 20,
+          right: 20,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Add Repo JSON', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                IconButton(
+                  icon: const Icon(Icons.close, color: Colors.grey),
+                  onPressed: () => Navigator.pop(ctx),
+                ),
+              ],
             ),
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Extensions & Repositories',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+            const SizedBox(height: 8),
+            const Text('Paste raw CS.json repository index URL.', style: TextStyle(color: Colors.grey, fontSize: 13)),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: controller,
+                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                    decoration: InputDecoration(
+                      hintText: 'https://raw.githubusercontent.com/.../CS.json',
+                      hintStyle: const TextStyle(color: Colors.grey, fontSize: 12),
+                      filled: true,
+                      fillColor: const Color(0xFF0D1117),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide.none,
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.close, color: Colors.grey),
-                        onPressed: () => Navigator.pop(context),
-                      ),
-                    ],
+                    ),
                   ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Paste raw JSON URL (e.g. CloudStream repo) to fetch real plugin & download links.',
-                    style: TextStyle(color: Colors.grey, fontSize: 13),
+                ),
+                const SizedBox(width: 10),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF238636),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: controller,
-                          style: const TextStyle(color: Colors.white, fontSize: 13),
-                          decoration: InputDecoration(
-                            hintText: 'https://raw.githubusercontent.com/.../plugins.json',
-                            hintStyle: const TextStyle(color: Colors.grey, fontSize: 12),
-                            filled: true,
-                            fillColor: const Color(0xFF0D1117),
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              borderSide: BorderSide.none,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF238636),
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        ),
-                        onPressed: () async {
-                          final text = controller.text.trim();
-                          if (text.isNotEmpty) {
-                            controller.clear();
-                            Navigator.pop(context);
-                            await _fetchRepository(text);
-                          }
-                        },
-                        child: const Text('Fetch', style: TextStyle(color: Colors.white)),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+                  onPressed: () async {
+                    final text = controller.text.trim();
+                    if (text.isNotEmpty) {
+                      controller.clear();
+                      Navigator.pop(ctx);
+                      await _addRepository(text);
+                    }
+                  },
+                  child: const Text('Fetch', style: TextStyle(color: Colors.white)),
+                ),
+              ],
             ),
-          );
-        },
+          ],
+        ),
       ),
     );
   }
@@ -385,16 +496,16 @@ class _HomeScreenState extends State<HomeScreen> {
                   Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      'Installed / Parsed Extensions (${_extensions.length})',
+                      'Installed / Parsed Repositories (${_repositories.length})',
                       style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
                     ),
                   ),
                   const SizedBox(height: 12),
-                  _extensions.isEmpty
+                  _repositories.isEmpty
                       ? const Padding(
                           padding: EdgeInsets.symmetric(vertical: 30),
                           child: Text(
-                            'No extensions fetched yet.\nTap "Add Extension JSON Repo" and paste a repository link.',
+                            'No repositories added yet.\nTap "Add Extension JSON Repo" and paste CS.json.',
                             textAlign: TextAlign.center,
                             style: TextStyle(color: Colors.grey, fontSize: 13),
                           ),
@@ -402,9 +513,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       : ListView.builder(
                           shrinkWrap: true,
                           physics: const NeverScrollableScrollPhysics(),
-                          itemCount: _extensions.length,
+                          itemCount: _repositories.length,
                           itemBuilder: (context, index) {
-                            final ext = _extensions[index];
+                            final repo = _repositories[index];
                             return Container(
                               margin: const EdgeInsets.only(bottom: 10),
                               decoration: BoxDecoration(
@@ -413,19 +524,19 @@ class _HomeScreenState extends State<HomeScreen> {
                                 border: Border.all(color: Colors.white10),
                               ),
                               child: ListTile(
-                                leading: const Icon(Icons.download_for_offline, color: Colors.redAccent),
+                                leading: const Icon(Icons.folder_special_rounded, color: Colors.redAccent),
                                 title: Text(
-                                  ext['name'] ?? '',
+                                  repo['name'] ?? '',
                                   style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
                                 ),
                                 subtitle: Text(
-                                  ext['description'] ?? '',
+                                  repo['description'] ?? '',
                                   style: const TextStyle(color: Colors.grey, fontSize: 12),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
-                                trailing: const Icon(Icons.open_in_new, color: Colors.blueAccent, size: 20),
-                                onTap: () => _openExtensionLink(ext['url']),
+                                trailing: const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white54, size: 16),
+                                onTap: () => _openSubRepoOrLink(repo),
                               ),
                             );
                           },
