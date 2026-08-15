@@ -1,4 +1,7 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:url_launcher/url_launcher.dart';
 
 void main() {
   runApp(const PriyamTVApp());
@@ -24,7 +27,6 @@ class PriyamTVApp extends StatelessWidget {
   }
 }
 
-// Custom Smooth Splash Screen (Prevents awkward OS zoom transitions)
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -83,37 +85,38 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Container(
-                width: 110,
-                height: 110,
+                width: 120,
+                height: 120,
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(24),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.red.withOpacity(0.2),
-                      blurRadius: 25,
+                      color: Colors.redAccent.withOpacity(0.3),
+                      blurRadius: 30,
                       spreadRadius: 2,
                     ),
                   ],
                 ),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(24),
-                  child: Image.network(
-                    'https://raw.githubusercontent.com/daspriyam2112-blip/priyam-tv/main/logo.jpeg',
+                  child: Image.asset(
+                    'logo.jpeg',
                     fit: BoxFit.cover,
+                    errorBuilder: (ctx, err, stack) => const Icon(Icons.person, size: 60, color: Colors.white),
                   ),
                 ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 24),
               const Text.rich(
                 TextSpan(
                   children: [
                     TextSpan(
                       text: 'Priyam',
-                      style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 1.2),
+                      style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 1.2),
                     ),
                     TextSpan(
                       text: 'TV',
-                      style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.redAccent, letterSpacing: 1.2),
+                      style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Colors.redAccent, letterSpacing: 1.2),
                     ),
                   ],
                 ),
@@ -134,12 +137,62 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final List<Map<String, String>> _installedProviders = [
-    {'name': 'SuperStream Provider', 'type': 'Movies & Series', 'url': 'https://provider.superstream.repo'},
-    {'name': 'VidSrc Scraper', 'type': 'Multi-Source Embed', 'url': 'https://vidsrc.me/api'},
-  ];
+  final List<Map<String, dynamic>> _extensions = [];
+  bool _isLoading = false;
 
-  final List<String> _repositoryUrls = [];
+  // Real HTTP Fetcher for Extension JSON
+  Future<void> _fetchRepository(String url) async {
+    setState(() => _isLoading = true);
+    try {
+      final response = await http.get(Uri.parse(url));
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        
+        // Supports standard CloudStream/Tachiyomi JSON plugin array structure
+        if (data is List) {
+          setState(() {
+            for (var item in data) {
+              if (item is Map<String, dynamic>) {
+                _extensions.add({
+                  'name': item['name'] ?? item['title'] ?? 'Unknown Extension',
+                  'url': item['url'] ?? item['downloadUrl'] ?? item['link'] ?? url,
+                  'description': item['description'] ?? item['site'] ?? 'Tap to open download/stream link',
+                });
+              }
+            }
+          });
+        } else if (data is Map<String, dynamic>) {
+          setState(() {
+            _extensions.add({
+              'name': data['name'] ?? 'Custom Scraper',
+              'url': data['url'] ?? url,
+              'description': data['description'] ?? 'Stream Source',
+            });
+          });
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Repository extensions loaded successfully!')),
+        );
+      } else {
+        throw Exception('HTTP ${response.statusCode}');
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to load JSON: $e')),
+      );
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  void _openExtensionLink(String urlString) async {
+    final Uri url = Uri.parse(urlString);
+    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not open link: $urlString')),
+      );
+    }
+  }
 
   void _showExtensionManager() {
     final controller = TextEditingController();
@@ -179,7 +232,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(height: 8),
                   const Text(
-                    'Add JSON Repository Collection URLs to pull available media streaming scrapers.',
+                    'Paste raw JSON URL (e.g. CloudStream repo) to fetch real plugin & download links.',
                     style: TextStyle(color: Colors.grey, fontSize: 13),
                   ),
                   const SizedBox(height: 16),
@@ -209,113 +262,23 @@ class _HomeScreenState extends State<HomeScreen> {
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                         ),
-                        onPressed: () {
-                          if (controller.text.trim().isNotEmpty) {
-                            setModalState(() {
-                              _repositoryUrls.add(controller.text.trim());
-                              _installedProviders.add({
-                                'name': 'Custom Scraper Source ${_installedProviders.length + 1}',
-                                'type': 'Stream Extraction',
-                                'url': controller.text.trim(),
-                              });
-                              controller.clear();
-                            });
-                            setState(() {});
+                        onPressed: () async {
+                          final text = controller.text.trim();
+                          if (text.isNotEmpty) {
+                            controller.clear();
+                            Navigator.pop(context);
+                            await _fetchRepository(text);
                           }
                         },
-                        child: const Text('Add', style: TextStyle(color: Colors.white)),
+                        child: const Text('Fetch', style: TextStyle(color: Colors.white)),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 20),
-                  const Text(
-                    'Available Streaming Providers:',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
-                  ),
-                  const SizedBox(height: 10),
-                  _installedProviders.isEmpty
-                      ? const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 20),
-                          child: Center(
-                            child: Text('No providers extracted yet. Add a repository link above.',
-                                style: TextStyle(color: Colors.grey, fontSize: 13)),
-                          ),
-                        )
-                      : ListView.builder(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          itemCount: _installedProviders.length,
-                          itemBuilder: (context, index) {
-                            final provider = _installedProviders[index];
-                            return Container(
-                              margin: const EdgeInsets.only(bottom: 8),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF0D1117),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: Colors.white10),
-                              ),
-                              child: ListTile(
-                                leading: const Icon(Icons.hub_rounded, color: Colors.redAccent),
-                                title: Text(
-                                  provider['name'] ?? '',
-                                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.white),
-                                ),
-                                subtitle: Text(
-                                  '${provider['type']} • Ready',
-                                  style: const TextStyle(fontSize: 11, color: Colors.grey),
-                                ),
-                                trailing: IconButton(
-                                  icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                                  onPressed: () {
-                                    setModalState(() {
-                                      _installedProviders.removeAt(index);
-                                    });
-                                    setState(() {});
-                                  },
-                                ),
-                              ),
-                            );
-                          },
-                        ),
                 ],
               ),
             ),
           );
         },
-      ),
-    );
-  }
-
-  void _showSettingsDialog() {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF161B22),
-        title: const Text('Settings', style: TextStyle(color: Colors.white)),
-        content: const Text('Playback and UI settings will appear here.', style: TextStyle(color: Colors.grey)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Close', style: TextStyle(color: Color(0xFF58A6FF))),
-          )
-        ],
-      ),
-    );
-  }
-
-  void _showAccountDialog() {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF161B22),
-        title: const Text('Account Profile', style: TextStyle(color: Colors.white)),
-        content: const Text('User profiles and sync settings will appear here.', style: TextStyle(color: Colors.grey)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Close', style: TextStyle(color: Color(0xFF58A6FF))),
-          )
-        ],
       ),
     );
   }
@@ -328,10 +291,7 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
-              colors: [
-                Color(0xFF1A2634), // Dark bluish face background tone
-                Color(0xFF090C10), // Fades smoothly to deep black
-              ],
+              colors: [Color(0xFF1A2634), Color(0xFF090C10)],
               begin: Alignment.centerLeft,
               end: Alignment.centerRight,
             ),
@@ -341,44 +301,27 @@ class _HomeScreenState extends State<HomeScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Row(
                 children: [
-                  // Facebook-style Face avatar in top bar
                   ClipRRect(
-                    borderRadius: BorderRadius.circular(6),
-                    child: Image.network(
-                      'https://raw.githubusercontent.com/daspriyam2112-blip/priyam-tv/main/logo.jpeg',
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.asset(
+                      'logo.jpeg',
                       width: 38,
                       height: 38,
                       fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => Container(
-                        width: 38,
-                        height: 38,
-                        color: Colors.blueGrey,
-                        child: const Icon(Icons.person, color: Colors.white),
-                      ),
+                      errorBuilder: (ctx, err, stack) => const Icon(Icons.person, color: Colors.white),
                     ),
                   ),
                   const SizedBox(width: 12),
-                  // Title text with "Priyam" in White and "TV" in Red
                   const Text.rich(
                     TextSpan(
                       children: [
                         TextSpan(
                           text: 'Priyam',
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                            letterSpacing: 0.5,
-                          ),
+                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
                         ),
                         TextSpan(
                           text: 'TV',
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.redAccent,
-                            letterSpacing: 0.5,
-                          ),
+                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.redAccent),
                         ),
                       ],
                     ),
@@ -388,76 +331,108 @@ class _HomeScreenState extends State<HomeScreen> {
                     icon: const Icon(Icons.extension_rounded, color: Colors.white70),
                     onPressed: _showExtensionManager,
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.settings_outlined, color: Colors.white70),
-                    onPressed: _showSettingsDialog,
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.person_outline, color: Colors.white70),
-                    onPressed: _showAccountDialog,
-                  ),
                 ],
               ),
             ),
           ),
         ),
       ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            // Center Face Profile Card
-            Container(
-              width: 120,
-              height: 120,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.redAccent.withOpacity(0.15),
-                    blurRadius: 20,
-                    spreadRadius: 5,
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator(color: Colors.redAccent))
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                children: [
+                  Container(
+                    width: 120,
+                    height: 120,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.redAccent.withOpacity(0.2),
+                          blurRadius: 20,
+                          spreadRadius: 3,
+                        ),
+                      ],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(20),
+                      child: Image.asset(
+                        'logo.jpeg',
+                        fit: BoxFit.cover,
+                        errorBuilder: (ctx, err, stack) => const Icon(Icons.person, size: 60, color: Colors.white),
+                      ),
+                    ),
                   ),
+                  const SizedBox(height: 20),
+                  const Text(
+                    'Welcome back!',
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
+                  ),
+                  const SizedBox(height: 16),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF238636),
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    onPressed: _showExtensionManager,
+                    icon: const Icon(Icons.add_link, color: Colors.white),
+                    label: const Text('Add Extension JSON Repo', style: TextStyle(color: Colors.white)),
+                  ),
+                  const SizedBox(height: 30),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Installed / Parsed Extensions (${_extensions.length})',
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  _extensions.isEmpty
+                      ? const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 30),
+                          child: Text(
+                            'No extensions fetched yet.\nTap "Add Extension JSON Repo" and paste a repository link.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: Colors.grey, fontSize: 13),
+                          ),
+                        )
+                      : ListView.builder(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: _extensions.length,
+                          itemBuilder: (context, index) {
+                            final ext = _extensions[index];
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 10),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF161B22),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: Colors.white10),
+                              ),
+                              child: ListTile(
+                                leading: const Icon(Icons.download_for_offline, color: Colors.redAccent),
+                                title: Text(
+                                  ext['name'] ?? '',
+                                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                                ),
+                                subtitle: Text(
+                                  ext['description'] ?? '',
+                                  style: const TextStyle(color: Colors.grey, fontSize: 12),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                trailing: const Icon(Icons.open_in_new, color: Colors.blueAccent, size: 20),
+                                onTap: () => _openExtensionLink(ext['url']),
+                              ),
+                            );
+                          },
+                        ),
                 ],
               ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(20),
-                child: Image.network(
-                  'https://raw.githubusercontent.com/daspriyam2112-blip/priyam-tv/main/logo.jpeg',
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) => const Icon(
-                    Icons.tv,
-                    size: 60,
-                    color: Colors.redAccent,
-                  ),
-                ),
-              ),
             ),
-            const SizedBox(height: 24),
-            const Text(
-              'Welcome back!',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Active Scrapers & Providers: ${_installedProviders.length}',
-              style: const TextStyle(color: Colors.grey, fontSize: 14),
-            ),
-            const SizedBox(height: 24),
-            OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.white,
-                side: const BorderSide(color: Color(0xFF30363D)),
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              ),
-              onPressed: _showExtensionManager,
-              icon: const Icon(Icons.link_rounded, color: Colors.redAccent),
-              label: const Text('Manage Provider Repositories'),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
